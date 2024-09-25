@@ -12,13 +12,17 @@ jobs:
     - uses: actions/setup-node@v4
       with:
         node-version: 20
-    - uses: agentic-actions/task-orchestrator@v1
+    - uses: actions/agent-pool@v2
       agentic: true
       with:
-        prompt: Coordinate the a team of agents to draft a release note for LinkedIn based on recent activities in the repo
-        sub-agents:
+        prompt: >
+          Coordinate the a team of agents to draft a release note for LinkedIn
+          based on recent activities in the repo
+        agents:
         - uses: agentic-actions/content-writer@v1
           prompt: Write for LinkedIn short post for dev audience. Causal tone.
+        - uses: agentic-actions/octokit-dev@v2.1.x
+          prompt: Query previous release notes with GitHub GraphQL API
         - uses: agentic-actions/code-analyzer@v2.1.x
           prompt: Summarize recent activities in the code base
         - uses: microsoft/legal-reviewer@v1
@@ -29,7 +33,6 @@ jobs:
       with:
         name: linkedin-draft
         path: linkedin-draft
-      timeout-minutes: 5
     
   publish:
     environment: production
@@ -37,15 +40,14 @@ jobs:
 
     steps:
     - uses: actions/checkout@v4.1.7
-      timeout-minutes: 2
-
-    - uses: actions/setup-node@v4
-      with:
-        node-version: 20
 
     - uses: actions/download-artifact@v4
       with:
         name: linkedin-draft
         path: linkedin-draft
 
-    - run: npx codecov
+   - uses: actions/publish-to-linkedin@v3
+     with:
+       account: alexb
+       credentials: {{ LINKEDIN_CREDS }}
+       content: linkedin-draft

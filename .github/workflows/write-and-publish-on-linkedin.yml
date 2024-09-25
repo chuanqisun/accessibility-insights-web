@@ -1,0 +1,61 @@
+name: Write and publish on LinkedIn
+
+on:
+  push:
+    branches: release
+
+jobs:
+  write:
+    runs-on: ubuntu-20.04
+    steps:
+      - uses: actions/checkout@v4.1.7
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - uses: agentic-actions/task-orchestrator@v1
+        agentic: true
+        max-iterations: 15
+        with:
+          prompt: >
+            Coordinate the a team of agents to draft a release note for LinkedIn
+            based on recent activities in the repo
+          sub-agents:
+            - uses: agentic-actions/content-writer@v1
+              prompt: Write LinkedIn short post for dev audience. Causal tone.
+            - uses: agentic-actions/octokit-dev@v4.8.7
+              prompt: Query previous release notes with GitHub GraphQL API
+            - uses: agentic-actions/code-analyzer@v2.1.x
+              prompt: Summarize recent activities in the code base
+            - uses: microsoft/legal-reviewer@v1
+              prompt: Identity and address potential legal issues in the content
+            - uses: agentic-actions/human-review@v1
+              prompt: Present the changes for human to review
+
+      - name: upload artifact build-results
+        uses: actions/upload-artifact@v4
+        with:
+          name: linkedin-draft
+          path: linkedin-draft
+
+  publish:
+    environment: production
+    runs-on: ubuntu-20.04
+
+    steps:
+      - uses: actions/checkout@v4.1.7
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: linkedin-draft
+          path: linkedin-draft
+
+   - uses: actions/publish-to-linkedin@v3
+     with:
+       account: alexb
+       credentials: {{ LINKEDIN_CREDS }}
+       content: linkedin-draft
+
