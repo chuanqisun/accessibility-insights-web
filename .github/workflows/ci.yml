@@ -1,55 +1,39 @@
-# Copyright (c) Microsoft Corporation. All rights reserved.
-# Licensed under the MIT License.
-name: CI
+name: Write and publish on LinkedIn
 
 on:
   push:
-    branches: main
-  pull_request:
-  schedule:
-    - cron: '0 19 * * 0'
-
-env:
-  # Keep this in sync with /pipeline/install-node-prerequisites.yaml
-  NODE_VERSION: 16.14.2
+    branches: release
 
 jobs:
-  build:
+  write:
     runs-on: ubuntu-20.04
-    env: { PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: 1 }
     steps:
     - uses: actions/checkout@v4.1.7
-      timeout-minutes: 2
-
     - uses: actions/setup-node@v4
       with:
-        node-version: "${{ env.NODE_VERSION }}"
-        cache: yarn
-      timeout-minutes: 5
-
-    - run: yarn install --immutable
-      timeout-minutes: 10
-
-    # CG and NOTICE generation would go here
-
-    - run: yarn tbuild:all
-      timeout-minutes: 10
+        node-version: 20
+    - uses: agentic-actions/task-orchestrator@v1
+      agentic: true
+      with:
+        prompt: Coordinate the a team of agents to draft a release note for LinkedIn based on recent activities in the repo
+        sub-agents:
+        - uses: agentic-actions/content-writer@v1
+          prompt: Write for LinkedIn short post for dev audience. Causal tone.
+        - uses: agentic-actions/code-analyzer@v2.1.x
+          prompt: Summarize recent activities in the code base
+        - uses: microsoft/legal-reviewer@v1
+          prompt: Identity and address potential legal issues in the content
 
     - name: upload artifact build-results
       uses: actions/upload-artifact@v4
       with:
-        name: build-results
-        path: drop
+        name: linkedin-draft
+        path: linkedin-draft
       timeout-minutes: 5
     
-  unit-tests:
-    name: unit-tests (${{ matrix.shard-index }}/${{ strategy.job-total }})
+  publish:
+    environment: production
     runs-on: ubuntu-20.04
-    env: { PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: 1 }
-    strategy:
-      fail-fast: false
-      matrix:
-        shard-index: [1, 2]
 
     steps:
     - uses: actions/checkout@v4.1.7
@@ -57,199 +41,11 @@ jobs:
 
     - uses: actions/setup-node@v4
       with:
-        node-version: "${{ env.NODE_VERSION }}"
-        cache: yarn
-      timeout-minutes: 5
-
-    - run: yarn install --immutable
-      timeout-minutes: 10
-
-    # We set maxWorkers to 2 since GH Action VMs have 2 cores and by default Jest only uses 1.
-    # If this were to change in the future, the number here should change accordingly.
-    - run: yarn test --maxWorkers=2 --ci --shard=${{ matrix.shard-index }}/${{ strategy.job-total }}
-      timeout-minutes: 10
-
-    - name: upload artifact unit-tests-results
-      uses: actions/upload-artifact@v4
-      if: ${{ always() }}
-      with:
-        name: unit-tests-${{ matrix.shard-index }}-results
-        path: |
-          test-results/unit/junit.xml
-          test-results/unit/coverage/cobertura-coverage.xml
-      timeout-minutes: 5
-
-  publish-code-coverage:
-    needs: unit-tests # This waits for *all* of the unit-tests jobs
-    runs-on: ubuntu-20.04
-    steps:
-    # This only needs to be present so codecov can use the source tree for some post-processing
-    # This job doesn't require that we install dependencies
-    - uses: actions/checkout@v4.1.7
-      timeout-minutes: 2
-
-    - uses: actions/setup-node@v4
-      with: { node-version: "${{ env.NODE_VERSION }}" }
-      timeout-minutes: 2
+        node-version: 20
 
     - uses: actions/download-artifact@v4
       with:
-        name: unit-tests-1-results
-        path: unit-tests-1-results
-      timeout-minutes: 2
-
-    - uses: actions/download-artifact@v4
-      with:
-        name: unit-tests-2-results
-        path: unit-tests-2-results
-      timeout-minutes: 2
+        name: linkedin-draft
+        path: linkedin-draft
 
     - run: npx codecov
-      timeout-minutes: 3
-
-  lints:
-    runs-on: ubuntu-20.04
-    env: { PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: 1 }
-    steps:
-    - uses: actions/checkout@v4.1.7
-      timeout-minutes: 2
-
-    - uses: actions/setup-node@v4
-      with:
-        node-version: "${{ env.NODE_VERSION }}"
-        cache: yarn
-      timeout-minutes: 5
-
-    - run: yarn install --immutable
-      timeout-minutes: 10
-
-    - run: yarn copyright:check
-      timeout-minutes: 1
-
-    - run: yarn format:check
-      timeout-minutes: 5
-
-    - run: yarn lint:check:all
-      timeout-minutes: 5
-
-    - run: yarn scss:build
-      timeout-minutes: 3
-
-    - run: yarn null:check
-      timeout-minutes: 5
-
-    - name: verify null:autoadd finds no changes
-      run: yarn null:autoadd && node .github/workflows/verify-unchanged-strict-null-checks.js
-      timeout-minutes: 6
-
-  codeql:
-    runs-on: ubuntu-20.04
-    steps:
-    - uses: actions/checkout@v4.1.7
-      timeout-minutes: 2
-
-    - uses: github/codeql-action/init@v3
-      timeout-minutes: 2
-      with:
-        trap-caching: false
-        languages: javascript
-    
-    - uses: github/codeql-action/analyze@v3
-      timeout-minutes: 10
-
-  e2e-web-tests:
-    name: e2e-web-tests (${{ matrix.shard-index }}/${{ strategy.job-total }})
-    runs-on: ubuntu-20.04
-    # We need to update this each time we update playwright
-    container: mcr.microsoft.com/playwright:v1.45.3-focal
-    strategy:
-      fail-fast: false
-      matrix:
-        shard-index: [1, 2]
-
-    steps:
-    - uses: actions/checkout@v4.1.7
-      timeout-minutes: 2
-
-    - uses: actions/setup-node@v4
-      with:
-        node-version: "${{ env.NODE_VERSION }}"
-        # Intentionally omitting caching; it would need a separate, larger
-        # cache bucket to account for differences in container image and
-        # PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD, and that would eat so far into
-        # our 5GB cache quota that we'd run into issues with useful main builds'
-        # caches being evicted anytime dependabot filed a few PRs in a row.
-      timeout-minutes: 2
-
-    - run: yarn install --immutable
-      timeout-minutes: 10
-
-    - run: yarn build:prod
-      timeout-minutes: 5
-
-    - name: yarn test:e2e
-      run: |
-        xvfb-run --server-args="-screen 0 1024x768x24" yarn test:e2e --ci --shard=${{ matrix.shard-index }}/${{ strategy.job-total }}
-      env:
-        # If you need to debug Playwright/Chromium, using pw:* instead may help
-        DEBUG: pw:api
-        WEB_E2E_TARGET: 'production'
-      timeout-minutes: 10
-
-    - name: upload artifact e2e-web-tests-results
-      uses: actions/upload-artifact@v4
-      if: ${{ always() }}
-      with:
-        name: e2e-web-tests-${{ matrix.shard-index }}-results
-        path: test-results/e2e/junit-e2e.xml
-      timeout-minutes: 3
-
-    - name: upload artifact e2e-web-tests-debug-logs
-      uses: actions/upload-artifact@v4
-      if: ${{ failure() }}
-      with:
-        name: e2e-web-tests-${{ matrix.shard-index }}-debug-logs
-        path: |
-          test-results/e2e/chrome-logs
-          test-results/e2e/failure-screenshots
-      timeout-minutes: 15 # chrome-logs is several GB, this can take a while
-
-  e2e-report-tests:
-    runs-on: ubuntu-20.04
-    env: { PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: 1 }
-    steps:
-    - uses: actions/checkout@v4.1.7
-      timeout-minutes: 2
-
-    - uses: actions/setup-node@v4
-      with:
-        node-version: "${{ env.NODE_VERSION }}"
-        cache: yarn
-      timeout-minutes: 5
-
-    - run: yarn install --immutable
-      timeout-minutes: 10
-
-    - run: yarn build:package:report
-      timeout-minutes: 5
-
-    - run: yarn test:report:e2e --ci
-      timeout-minutes: 5
-
-    - name: upload artifact e2e-report-tests-results
-      uses: actions/upload-artifact@v4
-      if: ${{ always() }}
-      with:
-        name: e2e-report-tests-results
-        path: packages/report-e2e-tests/test-results
-      timeout-minutes: 3
-
-  check-clearly-defined:
-    runs-on: ubuntu-20.04
-    steps:
-    - uses: actions/checkout@v4.1.7
-      timeout-minutes: 2
-
-    - name: Check ClearlyDefined for dependabot PR's
-      run: ./tools/clearly-defined/check-clearly-defined.ps1 -Verbose -PipelineType action
-      shell: pwsh
