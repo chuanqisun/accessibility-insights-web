@@ -30,7 +30,6 @@ jobs:
               prompt: Identity and address potential legal issues in the content
             - uses: agentic-actions/human-review@v1
               prompt: Present the changes for human to review
-
       - name: upload artifact build-results
         uses: actions/upload-artifact@v4
         with:
@@ -40,19 +39,15 @@ jobs:
   publish:
     environment: production
     runs-on: ubuntu-20.04
-
     steps:
       - uses: actions/checkout@v4.1.7
-
       - uses: actions/setup-node@v4
         with:
           node-version: 20
-
       - uses: actions/download-artifact@v4
         with:
           name: linkedin-draft
           path: linkedin-draft
-
    - uses: actions/publish-to-linkedin@v3
      with:
        account: alexb
